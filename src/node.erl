@@ -23,8 +23,8 @@ loop(Friends, TToMine, TMined, Chain) ->
     0 ->
       global:send(teacher_node, {get_friends, self(), make_ref()});
 
-    % se ne ho un numero minore compreso tra 1 e 2 chiedo ad uno dei miei amici
     % TODO avoid loop if there are less then 3 nodes on the net
+    % se ne ho un numero minore compreso tra 1 e 2 chiedo ad uno dei miei amici
     N when N<3 ->
       % sceglo a caso uno tra gli amici e mando una richiesta di amicizia
       %io:format("~p, asking friends for new friends~n", [self()]),
@@ -55,20 +55,20 @@ loop(Friends, TToMine, TMined, Chain) ->
       loop(MyNewFriends, TToMine, TMined, Chain);
 
     {dead, Node} ->
-      %uno degli amici è morto, ne devo acquisire un altro
+      %uno degli amici e' morto, ne devo acquisire un altro
       io:format("~p, Dead node ~p~n",[self(), Node]),
 
       %scelgo uno a caso dei nodi rimanenti e chiedo per nupv amici
       %FriendToAsk = lists:nth(rand:uniform(length(Friends) - 1), Friends -- [Node]),
       %FriendToAsk ! {get_friends, self(), make_ref()},
 
-      %TODO non si eliminano i nodi, perchè?
+      %TODO non si eliminano i nodi, perche'?
       loop(Friends -- [Node], TToMine, TMined, Chain);
 
 
   %%%%%%%%%%%%%%%%%%%%%%%   TRANSACTION   %%%%%%%%%%%%%%%%%%%%%%%%%%
 
-  % ricevo una transazione {ID, Payload}, se l'ID non è già presente la ritrasmetto agli
+  % ricevo una transazione {ID, Payload}, se l'ID non e' già presente la ritrasmetto agli
   % amici e cerco di inserirla nel prossimo blocco da minare
     {push, T} ->
       NewTransactions =
@@ -102,11 +102,11 @@ loop(Friends, TToMine, TMined, Chain) ->
     {getHead, Sender, Nonce} ->
       case length(Chain) of
         0 ->
-          io:format("~p, la mia catena è vuota, non mando nulla!~n", [self()]),
+          io:format("~p, la mia catena e' vuota, non mando nulla!~n", [self()]),
           Sender ! {head, Nonce, empty};
         _ ->
-          io:format("~p, la mia catena non è vuota, mando all'amico la testa!~n", [self()]),
-          [H|T] = Chain,
+          io:format("~p, la mia catena non e' vuota, mando all'amico la testa!~n", [self()]),
+          [H|_] = Chain,
           Sender ! {head, Nonce, H}
       end,
       loop(Friends, TToMine, TMined, Chain);
@@ -129,7 +129,7 @@ loop(Friends, TToMine, TMined, Chain) ->
       loop(Friends, TToMine, TMined, Chain);
 
     {printC} ->
-      io:format("~p, le catena è: ~p!~n", [self(), Chain]),
+      io:format("~p, le catena e': ~p!~n", [self(), Chain]),
       loop(Friends, TToMine, TMined, Chain);
 
     {printF} ->
@@ -138,11 +138,11 @@ loop(Friends, TToMine, TMined, Chain) ->
 
   end.
 
-% se la lista dei nuovi amici è vuota restituisco la lista di amici vecchia
+% se la lista dei nuovi amici e' vuota restituisco la lista di amici vecchia
 addFriends(Friends, []) ->
   Friends;
 
-%se la lista di miei amici è vuota devo aggingerne qualcuno
+%se la lista di miei amici e' vuota devo aggingerne qualcuno
 addFriends([], New_Friends) ->
   % scelgo uno tra gli amici a caso
   ToAddFriend = lists:nth(rand:uniform(length(New_Friends)), New_Friends),
@@ -176,7 +176,7 @@ sendTransToFriends(T, [F|Friends]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%   BLOCK   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% ho finito di scorrere la catena oppure la catena è vuota e non ho trovato nulla
+% ho finito di scorrere la catena oppure la catena e' vuota e non ho trovato nulla
 searchBlock(IDToSearch, []) -> none;
 
 searchBlock(IDToSearch, Chain) ->
@@ -188,30 +188,38 @@ searchBlock(IDToSearch, Chain) ->
     false -> searchBlock(IDToSearch, T)
   end.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%   MINER   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%   CHAIN   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% ho finito gli amici a cui chiedere, resituisco void
+getChain(Friend, []) ->
+  {[],[]};
 
 % chiedo la visione della catena ad uno dei miei amici (lo faccio solo all'inizio!)
 getChain(Friend, FriendsToAsk) ->
   io:format("~p, chiedo la catena ad un amico a caso!~n", [self()]),
   Friend ! {getHead, self(), make_ref()},
   receive
-  % la chain dell'amico è vuota, allora chiedo ad un altro amico
+  % la chain dell'amico e' vuota, allora chiedo ad un altro amico
     {head, Nonce, empty} ->
-      io:format("~p, la catena dell'amico è vuota!~n", [self()]),
+      io:format("~p, la catena dell'amico e' vuota!~n", [self()]),
       AnotherFriend = lists:nth(rand:uniform(length(FriendsToAsk)), FriendsToAsk),
       getChain(AnotherFriend, FriendsToAsk -- [AnotherFriend]);
 
   % a partire dalla testa vado a ricreare tutta la catena
     {head, Nonce, Block} ->
-      io:format("~p, la catena c'è, continuo a costruirla!~n", [self()]),
+      io:format("~p, la catena c'e', continuo a costruirla!~n", [self()]),
       {_, IDPreviousBlock, Transactions, _} = Block,
       getRemainingChain(Friend, FriendsToAsk, IDPreviousBlock, [Transactions], [Block])
 
   %se non ricevo alcuna risposta dall'amico per un tot di tempo chiedo ad un altro amico
   after ?TIMEOUT ->
     case length(FriendsToAsk) of
-      0 -> [];
+      0 -> {[],[]};   % restituisco void
       _ ->
         io:format("~p, l'amico non risponde, chiedo ad un altro amico!~n", [self()]),
         AnotherFriend = lists:nth(rand:uniform(length(FriendsToAsk)), FriendsToAsk),
@@ -219,9 +227,13 @@ getChain(Friend, FriendsToAsk) ->
     end
   end.
 
-% caso base in cui sono arrivato all'ultimo blocco della catena e quindi la resituisco insieme 
+% ho finito la lista di amici, allora restituisco void
+getRemainingChain(_,[],_,_,_) ->
+  {[],[]};
+
+% caso in cui sono arrivato all'ultimo blocco della catena e quindi la resituisco insieme
 % alle transazioni minate (presenti nei blocchi della catena)
-getRemainingChain(Friend, FriendsToAsk, none, TMined, Chain) ->
+getRemainingChain(_, _, none, TMined, Chain) ->
   io:format("~p, finito di scorrere la catena, la restituisco!~n", [self()]),
   {TMined, Chain};
 
@@ -238,7 +250,7 @@ getRemainingChain(Friend, FriendsToAsk, IDPreviousBlock, TMined, Chain) ->
   %se non ricevo risposta dopo un certo intervallo di tempo rispondo
   after ?TIMEOUT ->
     case length(FriendsToAsk) of
-      0 -> do_nothing;
+      0 -> {[],[]};   % restituisco void
       _ ->
         AnotherFriend = lists:nth(rand:uniform(length(FriendsToAsk)), FriendsToAsk),
         getRemainingChain(AnotherFriend, FriendsToAsk -- [AnotherFriend], IDPreviousBlock, TMined, Chain)
@@ -281,10 +293,10 @@ main() ->
 
   T = spawn(teacher_node, main, []),
   sleep(5),
-  Tra = [a1,a2,a3,b1,b2,b3,c1,c2,c3],
-  Cha = [{3,2,[c1,c2,c3],1234}, {2,1,[b1,b2,b3],1234}, {1,none,[a1,a2,a3],1234}],
-  N1 = spawn(node, loop, [[],[],Tra, Cha]),
-  %N1 = spawn(node, start, []),
+  %Tra = [a1,a2,a3,b1,b2,b3,c1,c2,c3],
+  %Cha = [{3,2,[c1,c2,c3],1234}, {2,1,[b1,b2,b3],1234}, {1,none,[a1,a2,a3],1234}],
+  %N1 = spawn(node, loop, [[],[],Tra, Cha]),
+  N1 = spawn(node, start, []),
   sleep(5),
   N2 = spawn(node, start, []),
   N3 = spawn(node, start, []),
