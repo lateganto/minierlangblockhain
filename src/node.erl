@@ -74,7 +74,7 @@ loop(Friends, TToMine, TMined, Chain) ->
       NewTransactions =
         case lists:member(T, TToMine) of
           true ->
-            io:format("~p, transazione già presente!~n", [self()]),
+            %io:format("~p, transazione già presente!~n", [self()]),
             TToMine;
           false ->
             % invio la transazione agli amici e la aggiungo alle transazioni da minare
@@ -86,7 +86,31 @@ loop(Friends, TToMine, TMined, Chain) ->
   %%%%%%%%%%%%%%%%%%%%%%%   BLOCK   %%%%%%%%%%%%%%%%%%%%%%%%%%
 
     {update, Sender, Block} ->
-      loop(Friends, TToMine, TMined, Chain);
+      % verifico se il blocco non è già nella mia catena
+      case lists:member(Block, Chain) of
+        true ->
+          %io:format("Blocco già presente~n"),
+          loop(Friends, TToMine, TMined, Chain);
+        false->
+          % verifico se il blocco è corretto
+          {_,IdPrevBlock,Transactions,Solution} = Block,
+          case proof_of_work:check({IdPrevBlock, Transactions}, Solution) of
+            true ->
+              %blocco corretto, lo ritrasmetto agli amici
+              spawn(fun() -> sendBlockToFriends(Block, Friends) end),
+
+              % todo aggiornare visione catena
+
+
+
+
+              loop(Friends, TToMine, TMined, Chain);
+            false ->
+              % blocco non corretto
+              invalid_block,
+              loop(Friends, TToMine, TMined, Chain)
+          end
+      end;
 
   %%%%%%%%%%%%%%%%%%%%%%%   MINER   %%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -106,13 +130,13 @@ loop(Friends, TToMine, TMined, Chain) ->
       end,
       loop(Friends, TToMine, TMined, Chain);
 
-  % ho terminato il mining di un nuovo blocco
+  % ho terminato il mining di un nuovo blocco, lo spammo a tutti gli amici, ripristino il minatore
+  % e aggiorno la mia visione della catena
     {block_mined, Block} ->
-      %io:format("Terminato mining blocco~n"),
       spawn(fun() -> sendBlockToFriends(Block, Friends) end), %lo invio agli amici
       self() ! {miner_ready},
       {_,_,TransactionsMined,_} = Block,
-      loop(Friends, TToMine--TransactionsMined, TMined--TransactionsMined, Chain++[Block]);
+      loop(Friends, TToMine--TransactionsMined, TMined--TransactionsMined, [Block]++Chain);
 
 
   %%%%%%%%%%%%%%%%%%%%%%%   CHAIN   %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -148,26 +172,13 @@ loop(Friends, TToMine, TMined, Chain) ->
         none -> stop;
         _ -> Sender ! {previous, Nonce, Block}
       end,
-      loop(Friends, TToMine, TMined, Chain);
-
-  %%%%%%%%%%%%%%%%%%%%%%%   UTILS   %%%%%%%%%%%%%%%%%%%%%%%%%%
-    {printTTM} ->
-      io:format("~p, le transazioni da minare sono: ~p!~n", [self(), TToMine]),
-      loop(Friends, TToMine, TMined, Chain);
-
-    {printTM} ->
-      io:format("~p, le transazioni minate sono: ~p!~n", [self(), TMined]),
-      loop(Friends, TToMine, TMined, Chain);
-
-    {printC} ->
-      io:format("~p, le catena e': ~p!~n", [self(), Chain]),
-      loop(Friends, TToMine, TMined, Chain);
-
-    {printF} ->
-      io:format("~p, i miei amici sono: ~p!~n", [self(), Friends]),
       loop(Friends, TToMine, TMined, Chain)
 
   end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % se la lista dei nuovi amici e' vuota restituisco la lista di amici vecchia
 addFriends(Friends, []) ->
@@ -291,7 +302,7 @@ getRemainingChain(Friend, FriendsToAsk, IDPreviousBlock, TMined, Chain) ->
       io:format("~p, blocco precedente ricevuto!~n", [self()]),
       {_, IDPreviousBlockTemp, Transactions, _} = Block,
       Friend ! {get_previous, self(), make_ref(), IDPreviousBlockTemp},
-      getRemainingChain(Friend, FriendsToAsk, IDPreviousBlockTemp, TMined++Transactions, Chain++[Block])
+      getRemainingChain(Friend, FriendsToAsk, IDPreviousBlockTemp, TMined++Transactions, [Block]++Chain)
 
   %se non ricevo risposta dopo un certo intervallo di tempo rispondo
   after ?TIMEOUT ->
@@ -307,17 +318,16 @@ getRemainingChain(Friend, FriendsToAsk, IDPreviousBlock, TMined, Chain) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 start() ->
-  % invio una prima richiesta al teacher node per registrarmi
+  io:format("~n[~p] - ASKING FOR FRIENDS TO TEACHER~n", [self()]),
   global:send(teacher_node, {get_friends, self(), make_ref()}),
   sleep(5),
 
-  io:format("~p, CHIEDO PER CATENA!~n", [self()]),
+  io:format("~n[~p] - ASK TO FRIENDS FOR CHAIN INITIAL CHAIN~n", [self()]),
   self() ! {getChain},
 
-  io:format("~p, MINER PRONTO!~n", [self()]),
+  io:format("~n[~p] - INVOKE MINER~n", [self()]),
   self() ! {miner_ready},
 
-  % avvio il ciclo
   loop([],[],[],[]).
 
 
@@ -337,12 +347,19 @@ main() ->
   N1 ! {push, {make_ref(), "ciao11"}},
   N1 ! {push, {make_ref(), "ciao21"}},
   N1 ! {push, {make_ref(), "ciao31"}},
-  N1 ! {push, {make_ref(), "ciao41"}}.
+  N1 ! {push, {make_ref(), "ciao41"}},
+
+  sleep(30),
+  N1 ! {push, {make_ref(), "ciao41"}},
+  N1 ! {push, {make_ref(), "ciao51"}},
+  N1 ! {push, {make_ref(), "ciao61"}},
+  N1 ! {push, {make_ref(), "ciao71"}}.
 
 
-  %N1 = spawn(node, start, []),
-  %sleep(10),
-  %N2 = spawn(node, start, []),
-  %N3 = spawn(node, start, []),
-  %N4 = spawn(node, start, []).
+
+%N1 = spawn(node, start, []),
+%sleep(10),
+%N2 = spawn(node, start, []),
+%N3 = spawn(node, start, []),
+%N4 = spawn(node, start, []).
 
