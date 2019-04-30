@@ -74,14 +74,45 @@ loop(Friends, TToMine, TMined, Chain) ->
       NewTransactions =
         case lists:member(T, TToMine) of
           true ->
-            %io:format("~p, transazione già presente!~n", [self()]),
+            io:format("~p, transazione già presente!~n", [self()]),
             TToMine;
           false ->
-            P = spawn(fun() -> sendTransToFriends(T, Friends) end),
-            %io:format("~p, invio la transazione a tutti i miei amici con processo ~p!~n", [self(), P]),
+            % invio la transazione agli amici e la aggiungo alle transazioni da minare
+            spawn(fun() -> sendTransToFriends(T, Friends) end),
             [T | TToMine]
         end,
       loop(Friends, NewTransactions, TMined, Chain);
+
+  %%%%%%%%%%%%%%%%%%%%%%%   BLOCK   %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+    {update, Sender, Block} ->
+      loop(Friends, TToMine, TMined, Chain);
+
+  %%%%%%%%%%%%%%%%%%%%%%%   MINER   %%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  % c'è almeno una transazione da minare e il miner è pronto a prendere transazioni per costruire blocchi
+    {miner_ready} when length(TToMine) > 0 ->
+      TInMining = lists:sublist(TToMine, 10), % TODO attenzione
+      Self = self(),
+      case length(Chain) of
+        % la catena è vuota, questo blocco sarebbe il primo
+        0 ->
+          spawn(fun() -> createBlock(TInMining, none, Self) end);
+
+        % la catena non è vuota
+        _ ->
+          [{IdBlock,_,_,_}|_] = Chain,
+          spawn(fun() -> createBlock(TInMining, IdBlock, Self) end)
+      end,
+      loop(Friends, TToMine, TMined, Chain);
+
+  % ho terminato il mining di un nuovo blocco
+    {block_mined, Block} ->
+      %io:format("Terminato mining blocco~n"),
+      spawn(fun() -> sendBlockToFriends(Block, Friends) end), %lo invio agli amici
+      self() ! {miner_ready},
+      {_,_,TransactionsMined,_} = Block,
+      loop(Friends, TToMine--TransactionsMined, TMined--TransactionsMined, Chain++[Block]);
 
 
   %%%%%%%%%%%%%%%%%%%%%%%   CHAIN   %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -165,7 +196,8 @@ addFriends(Friends, New_Friends) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %caso base (chain vuota o blocco non trovato)
-sendTransToFriends(T, []) ->
+sendTransToFriends(_, []) ->
+  %io:format("[~p] finito invo trans~n", [self()]),
   ok;
 
 sendTransToFriends(T, [F|Friends]) ->
@@ -177,7 +209,7 @@ sendTransToFriends(T, [F|Friends]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % ho finito di scorrere la catena oppure la catena e' vuota e non ho trovato nulla
-searchBlock(IDToSearch, []) -> none;
+searchBlock(_, []) -> none;
 
 searchBlock(IDToSearch, Chain) ->
   [H|T] = Chain,
@@ -188,9 +220,23 @@ searchBlock(IDToSearch, Chain) ->
     false -> searchBlock(IDToSearch, T)
   end.
 
+sendBlockToFriends(_,[]) ->
+  %io:format("[~p] finito invo blocco amici~n", [self()]),
+  ok;
+
+sendBlockToFriends(Block, [F| Friends]) ->
+  %io:format("invio blocco amico [~p]~n", [F]),
+  F ! {update, self(), Block},
+  sendBlockToFriends(Block, Friends).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%   MINER   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% funzione per il mining di un blocco, al termine invia al sender un messaggio con il nuovo blocco minato
+createBlock(Transactions, IdPrevBlock, Sender) ->
+  Solution = proof_of_work:solve({IdPrevBlock, Transactions}),
+  NewBlock = {make_ref(), IdPrevBlock, Transactions, Solution},
+  Sender ! {block_mined, NewBlock}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%   CHAIN   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -263,42 +309,40 @@ getRemainingChain(Friend, FriendsToAsk, IDPreviousBlock, TMined, Chain) ->
 start() ->
   % invio una prima richiesta al teacher node per registrarmi
   global:send(teacher_node, {get_friends, self(), make_ref()}),
-  %io:format("~p, ask to teacher_node for initial friends!~n", [self()]),
-  sleep(10),
+  sleep(5),
 
   io:format("~p, CHIEDO PER CATENA!~n", [self()]),
   self() ! {getChain},
+
+  io:format("~p, MINER PRONTO!~n", [self()]),
+  self() ! {miner_ready},
 
   % avvio il ciclo
   loop([],[],[],[]).
 
 
 main() ->
-  % start a new process for teacher and node
-  %T = spawn(teacher_node, main, []),
-  %sleep(5),
-  %N1 = spawn(node, loop, [[],[]]),
-  %N2 = spawn(node, loop, [[],[]]),
-  %N3 = spawn(node, loop, [[],[]]),
-  %N4 = spawn(node, loop, [[],[]]).
-
-
-
-  %T = spawn(teacher_node, main, []),
-  %Tra = [a1,a2,a3,b1,b2,b3,c1,c2,c3],
-  %Cha = [{3,2,[c1,c2,c3],1234}, {2,1,[b1,b2,b3],1234}, {1,none,[a1,a2,a3],1234}],
-  %N1 = spawn(node, loop, [[],[],Tra, Cha]),
-  %N1 = spawn(node, loop, [[],[],[],[]]).
-  %global:send(teacher_node, {get_friends, N1, make_ref()}),
-
   T = spawn(teacher_node, main, []),
   sleep(5),
-  %Tra = [a1,a2,a3,b1,b2,b3,c1,c2,c3],
+  %Tra = [a1,a2,a3,b1,b2,b3,c1,c2,c3,d,e,f,g,h,i],
   %Cha = [{3,2,[c1,c2,c3],1234}, {2,1,[b1,b2,b3],1234}, {1,none,[a1,a2,a3],1234}],
-  %N1 = spawn(node, loop, [[],[],Tra, Cha]),
   N1 = spawn(node, start, []),
-  sleep(5),
-  N2 = spawn(node, start, []),
-  N3 = spawn(node, start, []),
-  N4 = spawn(node, start, []).
+
+  N1 ! {push, {make_ref(), "ciao1"}},
+  N1 ! {push, {make_ref(), "ciao2"}},
+  N1 ! {push, {make_ref(), "ciao3"}},
+  N1 ! {push, {make_ref(), "ciao4"}},
+
+  sleep(10),
+  N1 ! {push, {make_ref(), "ciao11"}},
+  N1 ! {push, {make_ref(), "ciao21"}},
+  N1 ! {push, {make_ref(), "ciao31"}},
+  N1 ! {push, {make_ref(), "ciao41"}}.
+
+
+  %N1 = spawn(node, start, []),
+  %sleep(10),
+  %N2 = spawn(node, start, []),
+  %N3 = spawn(node, start, []),
+  %N4 = spawn(node, start, []).
 
