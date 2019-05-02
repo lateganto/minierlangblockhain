@@ -118,25 +118,6 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                                     loop(Friends, TToMineNew, TMinedNew, NewChain, none)
                             end;
 
-                           %case chain_reconstruction(Block, Chain, Sender, Friends) of
-                           %    % scarto il blocco
-                           %    discard ->
-                           %        loop(Friends, TToMine, TMined, Chain, Mining);
-
-                           %    % ho ricevuto una nuova catena e un nuovo set di transazioni
-                           %    {NewChain, NewTransactions} ->
-                           %        % se il miner stava lavorando lo killo
-                           %        case Mining of
-                           %            none -> continue;
-                           %            _ -> exit(Mining, kill)
-                           %        end,
-                           %        TMinedNew = NewTransactions ++ TMined,
-                           %        TToMineNew = TToMine -- TMinedNew,
-
-
-                           %        loop(Friends, TToMineNew, TMinedNew, NewChain, none)
-                           %end;
-
                         false ->
                             io:format("[~p] - UPDATE_B: Blocco non corretto... non faccio nulla!~n", [self()]),
                             loop(Friends, TToMine, TMined, Chain, Mining)
@@ -436,41 +417,23 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
             throw(discard)
     end.
 
-% cerco il punto in comune tra otherChain e MyChain
-% Blocco è il punto potenziale della biforcazione
-% Quando trovo un blocco in comune cerco la posizione di quel Blocco
-% in MyChain e lo sommo alla OtherChain in modo da poter scegliere la catena più lunga
-otherChainFinished({_,none,_,_}, OtherChain, MyChain) ->
-    case length(MyChain) >= length(OtherChain) of
-        true ->
-            throw(discard);
-        false ->
-            % A parità di lughezze rimaniamo con la nostra catena
-            NewT = lists:flatmap(fun(A)->{_,_,X,_}=A, X end, OtherChain),
-            throw({OtherChain,NewT})
-    end;
-otherChainFinished(_,_,_) -> none.
-
 searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
+    {IDBlock,IDPreviousBlock,_,_} = Block,
 
-    otherChainFinished(Block,OtherChain ++ [Block], MyChain),
-
-    %case IDPrev of
-    %    % ho scorso tutta la catena dell'amico, quindi devo decidere quale delle due accettare
-    %    none ->
-    %        case length(MyChain) >= length(OtherChain) of
-    %            % la mia catena è almeno uguale all'altra, quindi scarto il blocco
-    %            true ->
-    %                throw(discard);
-    %            % la catena dell'amico è più grande, allora diventa la mia nuova catena
-    %            false ->
-    %                NewTransactions = lists:flatmap(fun(A) -> {_,_,X,_}=A, X end, OtherChain),
-    %                throw({OtherChain, NewTransactions})
-    %        end;
-    %    _ -> continue
-    %end,
-
-    {IDBlock,_,_,_} = Block,
+    case IDPreviousBlock of
+        % ho scorso tutta la catena dell'amico, quindi devo decidere quale delle due accettare
+        none ->
+            case length(MyChain) >= length(OtherChain++[Block]) of
+                % la mia catena è almeno uguale all'altra, quindi scarto il blocco
+                true ->
+                    throw(discard);
+                % la catena dell'amico è più grande, allora diventa la mia nuova catena
+                false ->
+                    NewTransactions = lists:flatmap(fun(A) -> {_,_,X,_}=A, X end, OtherChain++[Block]),
+                    throw({OtherChain, NewTransactions})
+            end;
+        _ -> continue
+    end,
 
     % controllo se l'ID del blocco ricevuto è presente nella mia catena:
     %   * se non c'è vuol dire che non c'è una biforcazione
@@ -484,14 +447,6 @@ searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
             {_,IDPrev,_,_} = Block,
             Prev = searchPrevious(IDPrev, [Sender]++Friends),
             searchBlockOthers(OtherChain++[Prev], Prev, MyChain, Sender, Friends);
-
-            %case searchPrevious(IDPreviousBlock, [Sender]++Friends) of
-            %    % non ho trovato il precedente blocco tra gli amici, quindi lo scarto
-            %    discard -> discard;
-            %    % ho trovato il blocco a cui punta il blocco ricevuto, continuo a cercare i blocchi precedenti
-            %    Prev ->
-            %        searchBlockOthers(OtherChain++[Prev], Prev, MyChain, Sender, Friends)
-            %end;
 
         % nell'iterazione sono arrivato ad un blocco in comune quindi ho una biforcazione
         CommonBlock ->
@@ -589,8 +544,6 @@ start() ->
     io:format("~n[~p] - ASK TO FRIENDS FOR INITIAL CHAIN~n", [self()]),
     self() ! {getChain},
 
-    %sleep(2),
-
     io:format("~n[~p] - INVOKE MINER~n", [self()]),
     self() ! {miner_ready},
 
@@ -604,14 +557,14 @@ main() ->
     N2 = spawn(node, start, []),
     N3 = spawn(node, start, []),
 
-    io:format("1. PUSHO 4 TRANSAZIONI!~n"),
+    io:format("~n~n1. PUSHO 4 TRANSAZIONI!~n"),
     N1 ! {push, {make_ref(), "ciao1"}},
     N1 ! {push, {make_ref(), "ciao2"}},
     N1 ! {push, {make_ref(), "ciao3"}},
     N1 ! {push, {make_ref(), "ciao4"}},
 
     sleep(10),
-    io:format("2. PUSHO 4 TRANSAZIONI!~n"),
+    io:format("~n~n2. PUSHO 4 TRANSAZIONI!~n"),
     N1 ! {push, {make_ref(), "ciao11"}},
     N1 ! {push, {make_ref(), "ciao21"}},
     N1 ! {push, {make_ref(), "ciao31"}},
