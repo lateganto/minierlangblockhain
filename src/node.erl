@@ -91,9 +91,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                     io:format("[~p] - UPDATE_B: Blocco gia' presente... non faccio nulla!~n", [self()]),
                     loop(Friends, TToMine, TMined, Chain, Mining);
                 false->
-
-                    % TODO problema dead node per blocco pid, soluzione è fare check  e altra roba in nuovo processo
-                    io:format("[~p] - UPDATE_B: Controllo se il blocco e' corretto!~n", [self()]),
+                    %io:format("[~p] - UPDATE_B: Controllo se il blocco e' corretto!~n", [self()]),
                     % verifico se il blocco è corretto
                     case checkBlock(Block) of
                         true ->
