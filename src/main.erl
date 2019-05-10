@@ -18,39 +18,41 @@ watch(Main,Node) ->
         Main ! {dead, Node}
     end.
 
-loop(Friends, TToMine, TMined, Chain, Mining) ->
-    case length(Friends) of
-        % se non ho amici, chiedo al teacher node
-        0 ->
-            global:send(teacher_node, {get_friends, self(), make_ref()});
 
-        % TODO avoid loop if there are less then 3 nodes on the net
-        % se ne ho un numero minore compreso tra 1 e 2 chiedo ad uno dei miei amici
-        N when N<3 ->
-            % sceglo a caso uno tra gli amici e mando una richiesta di amicizia
-            %io:format("~p, asking friends for new friends~n", [self()]),
-            AskToFriend = lists:nth(rand:uniform(length(Friends)), Friends),
-            sendMessage(AskToFriend, {get_friends, self(), make_ref()});
-            %AskToFriend ! {get_friends, self(), make_ref()};
-        _ ->
-            ok
-    end,
+checkFriends(Main) ->
+    % ogni 5 secondi chiede al Root gli amici e controlla che siano nel numero giusto
+    Main ! {check_friends, self()},
     receive
-        {new_friends, NewFriends} ->
-            checkFriends(Main, NewFriends)
+        {friends, Friends} ->
+            case length(Friends) of
+                % non ho amici chiedo al pro
+                0 ->
+                    %io:format("[~p] - CHECK_FRIENDS: Non ho amici chiedo al nodo professore!~n", [Main]),
+                    global:send(teacher_node, {get_friends, Main, make_ref()}),
+                    sleep(5),
+                    checkFriends(Main);
+
+                % scelgo a caso uno tra gli amici e mando una richiesta di amicizia
+                N when N<3 ->
+                    %io:format("[~p] - CHECK_FRIENDS: Chiedo ad un amico chiedo una lista dei loro amici!~n", [Main]),
+                    AskToFriend = lists:nth(rand:uniform(length(Friends)), Friends),
+                    sendMessage(AskToFriend, {get_friends, Main, make_ref()}),
+                    sleep(5),
+                    checkFriends(Main)
+            end
     end.
 
     receive
         % se ricevo un ping rispondo con un pong al mittente
         {ping, Sender, Nonce} ->
             Sender ! {pong, Nonce},
-            loop(PidF, Friends, TToMine, TMined, Chain, Mining);
+            loop(Friends, TToMine, TMined, Chain, Mining);
 
         % se gli altri nodi mi chiedono amici mando semplicemente la lista di amici che ho
         {get_friends, Sender, Nonce} ->
             sendMessage(Sender, {friends, Nonce, Friends}),
             %Sender ! {friends, Nonce, Friends},
-            loop(PidF, Friends, TToMine, TMined, Chain, Mining);
+            loop(Friends, TToMine, TMined, Chain, Mining);
 
         % il teacher node o gli altri amici mi rispondono con una lista di amici
         {friends, _, Sent_Friends} ->
@@ -58,15 +60,19 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
             New_Friends = Sent_Friends -- [self() | Friends],
             % qui viene salvata la nuova lista di amici
             MyNewFriends = addFriends(Friends, New_Friends),
-            %io:format("~p My new friends are: ~p~n", [self(), MyNewFriends]),
-            % aggiorno la lista del checker degli amici
-            PidF ! {new_friends, MyNewFriends},
-            loop(PidF, MyNewFriends, TToMine, TMined, Chain, Mining);
+            %io:format("[~p] - My new friends are: ~p~n", [self(), MyNewFriends]),
+            loop(MyNewFriends, TToMine, TMined, Chain, Mining);
 
+        % il checker amici chiede la lista degli amici per mantenere sempre un numero pari a 3
+        {check_friends, Sender} ->
+            %io:format("[~p] - CHECK_FRIENDS(LOOP): Mando lista amici a checker!~n", [self()]),
+            Sender ! {friends, Friends},
+            loop(Friends, TToMine, TMined, Chain, Mining);
+
+        % uno degli amici e' morto
         {dead, Node} ->
-            %uno degli amici e' morto, ne devo acquisire un altro
             io:format("[~p] - Dead node ~p~n",[self(), Node]),
-            loop(PidF, Friends -- [Node], TToMine, TMined, Chain, Mining);
+            loop(Friends -- [Node], TToMine, TMined, Chain, Mining);
 
 
         %%%%%%%%%%%%%%%%%%%%%%%   TRANSACTION   %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -85,7 +91,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                         spawn(fun() -> sendTransToFriends(T, Friends) end),
                         [T | TToMine]
                 end,
-            loop(PidF, Friends, NewTransactions, TMined, Chain, Mining);
+            loop(Friends, NewTransactions, TMined, Chain, Mining);
 
 
         %%%%%%%%%%%%%%%%%%%%%%%   BLOCK   %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -95,7 +101,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
             case lists:member(Block, Chain) of
                 true ->
                     io:format("[~p] - UPDATE_B: Blocco gia' presente... non faccio nulla!~n", [self()]),
-                    loop(PidF, Friends, TToMine, TMined, Chain, Mining);
+                    loop(Friends, TToMine, TMined, Chain, Mining);
                 false->
                     %io:format("[~p] - UPDATE_B: Controllo se il blocco e' corretto!~n", [self()]),
                     % verifico se il blocco è corretto
@@ -112,7 +118,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                             catch
                                 % blocco scartato per qualche motivo, non faccio nulla
                                 discard ->
-                                    loop(PidF, Friends, TToMine, TMined, Chain, Mining);
+                                    loop(Friends, TToMine, TMined, Chain, Mining);
 
                                 % ricevuta nuova catena e nuove TMined
                                 {NewChain, NewTransactions} ->
@@ -128,12 +134,12 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                                     end,
                                     TMinedNew = NewTransactions ++ TMined,
                                     TToMineNew = TToMine -- TMinedNew,
-                                    loop(PidF, Friends, TToMineNew, TMinedNew, NewChain, none)
+                                    loop(Friends, TToMineNew, TMinedNew, NewChain, none)
                             end;
 
                         false ->
                             io:format("[~p] - UPDATE_B: Blocco non corretto... non faccio nulla!~n", [self()]),
-                            loop(PidF, Friends, TToMine, TMined, Chain, Mining)
+                            loop(Friends, TToMine, TMined, Chain, Mining)
                     end
             end;
 
@@ -156,7 +162,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                     [{IdBlock,_,_,_}|_] = Chain,
                     New_Mining = spawn(fun() -> createBlock(TInMining, IdBlock, Self) end)
             end,
-            loop(PidF, Friends, NewTToMine, TMined, Chain, New_Mining);
+            loop(Friends, NewTToMine, TMined, Chain, New_Mining);
 
         % ho terminato il mining di un nuovo blocco, lo invio a tutti gli amici, ripristino il miner
         % e aggiorno la mia visione della catena
@@ -173,10 +179,10 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                             io:format("[~p] - BLOCK_MINED: Aggiunto primo blocco minato... invio ad amici!~n", [self()]),
                             spawn(fun() -> sendBlockToFriends(Block, Friends) end), %lo giro agli amici
                             % aggiorno la mia visione della catena e delle transazioni minate e non
-                            loop(PidF, Friends, TToMine--TransactionsMined, TMined++TransactionsMined, [Block]++Chain, Mining);
+                            loop(Friends, TToMine--TransactionsMined, TMined++TransactionsMined, [Block]++Chain, Mining);
                         false ->
                             io:format("[~p] - BLOCK_DISCARDED: Catena vuota ma il blocco minato non ha come previous none!~n", [self()]),
-                            loop(PidF, Friends, TToMine, TMined, Chain, Mining)
+                            loop(Friends, TToMine, TMined, Chain, Mining)
                     end;
                 _ ->
                     % il blocco minato deve avere come IDPreviousBlock l'ID della testa della catena
@@ -187,10 +193,10 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                             io:format("[~p] - BLOCK_MINED: Aggiunto nuovo blocco minato... invio ad amici!~n", [self()]),
                             spawn(fun() -> sendBlockToFriends(Block, Friends) end), %lo giro agli amici
                             % aggiorno la mia visione della catena e delle transazioni minate e non
-                            loop(PidF, Friends, TToMine--TransactionsMined, TMined++TransactionsMined, [Block]++Chain, Mining);
+                            loop(Friends, TToMine--TransactionsMined, TMined++TransactionsMined, [Block]++Chain, Mining);
                         false ->
                             io:format("[~p] - BLOCK_DISCARDED: Blocco minato ma non punta alla testa della chain!~n", [self()]),
-                            loop(PidF, Friends, TToMine, TMined, Chain, Mining)
+                            loop(Friends, TToMine, TMined, Chain, Mining)
                     end
             end;
 
@@ -202,12 +208,12 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
             case length(Friends) of
                 0 ->
                     io:format("[~p] - GETCHAIN: Non ho amici a cui chiedere la catena! :(~n", [self()]),
-                    loop(PidF, Friends, TToMine, TMined, Chain, Mining);
+                    loop(Friends, TToMine, TMined, Chain, Mining);
                 _ ->
                     io:format("[~p] - GETCHAIN: Chiedo la catena ad un amico!~n", [self()]),
                     Friend = lists:nth(rand:uniform(length(Friends)), Friends),
                     {NewTMined, NewChain} = getChain(Friend, Friends -- [Friend]),
-                    loop(PidF, Friends, TToMine, NewTMined, NewChain, Mining)
+                    loop(Friends, TToMine, NewTMined, NewChain, Mining)
             end;
 
         {getHead, Sender, Nonce} ->
@@ -224,7 +230,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                     sendMessage(Sender, {head, Nonce, H})
                     %Sender ! {head, Nonce, H}
             end,
-            loop(PidF, Friends, TToMine, TMined, Chain, Mining);
+            loop(Friends, TToMine, TMined, Chain, Mining);
 
         {get_previous, Sender, Nonce, IDPreviousBlock} ->
             Block = searchBlock(IDPreviousBlock, Chain),
@@ -234,7 +240,7 @@ loop(Friends, TToMine, TMined, Chain, Mining) ->
                     sendMessage(Sender, {previous, Nonce, Block})
                     %Sender ! {previous, Nonce, Block}
             end,
-            loop(PidF, Friends, TToMine, TMined, Chain, Mining);
+            loop(Friends, TToMine, TMined, Chain, Mining);
 
         %%%%%%%%%%%%%%%%%%%%%%%   UTILS   %%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -563,27 +569,36 @@ sendMessage(Receiver, Msg) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+start(Self) ->
+    sleep(5),
+    io:format("~n[~p] - ASK TO FRIENDS FOR INITIAL CHAIN~n", [self()]),
+    Self ! {getChain},
+
+    io:format("~n[~p] - INVOKE MINER~n", [self()]),
+    Self ! {miner_ready}.
+
+
 
 start() ->
     io:format("~n[~p] - ASKING FOR FRIENDS TO TEACHER~n", [self()]),
+    Self = self(),
+    spawn_link(fun() -> checkFriends(Self) end),
     global:send(teacher_node, {get_friends, self(), make_ref()}),
-    sleep(5),
+    spawn_link(fun()-> start(Self) end),
 
-    io:format("~n[~p] - ASK TO FRIENDS FOR INITIAL CHAIN~n", [self()]),
-    self() ! {getChain},
-
-    io:format("~n[~p] - INVOKE MINER~n", [self()]),
-    self() ! {miner_ready},
-
-    loop(PidF, [],[],[],[],none).
+    loop([],[],[],[],none).
 
 
 main() ->
     spawn(teacher_node, main, []),
     sleep(5),
-    N1 = spawn(node, start, []),
-    N2 = spawn(node, start, []),
-    N3 = spawn(node, start, []),
+    N1 = spawn(main, main, []),
+    sleep(2),
+    N2 = spawn(main, main, []),
+    sleep(2),
+    N3 = spawn(main, main, []),
+    sleep(20),
+    N4 = spawn(main, main, []).
 
     io:format("~n~n1. PUSHO 4 TRANSAZIONI!~n"),
     N1 ! {push, {make_ref(), "ciao1"}},
