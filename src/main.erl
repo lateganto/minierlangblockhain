@@ -50,8 +50,8 @@ checkFriends(Main) ->
 
    % se gli altri nodi mi chiedono amici mando semplicemente la lista di amici che ho
       {get_friends, Sender, Nonce} ->
-         sendMessage(Sender, {friends, Nonce, Friends}),
          %Sender ! {friends, Nonce, Friends},
+         sendMessage(Sender, {friends, Nonce, Friends}),
          loop(Friends, TToMine, TMined, Chain, Mining);
 
    % il teacher node o gli altri amici mi rispondono con una lista di amici
@@ -221,8 +221,8 @@ checkFriends(Main) ->
             % catena vuota mando il messaggio
             0 ->
                io:format("[~p] - GETCHAIN: La mia catena e' vuota... lo notifico all'amico!~n", [self()]),
+               %Sender ! {head, Nonce, empty};
                sendMessage(Sender, {head, Nonce, empty});
-            %Sender ! {head, Nonce, empty};
             % catena con almeno un elemento, mando la testa all'amico
             _ ->
                io:format("[~p] - GETCHAIN: La mia catena non e' vuota... mando all'amico la testa!~n", [self()]),
@@ -236,8 +236,8 @@ checkFriends(Main) ->
          case Block of
             none -> stop;
             _ ->
+               %Sender ! {previous, Nonce, Block}
                sendMessage(Sender, {previous, Nonce, Block})
-            %Sender ! {previous, Nonce, Block}
          end,
          loop(Friends, TToMine, TMined, Chain, Mining);
 
@@ -289,8 +289,8 @@ sendTransToFriends(_, []) ->
 
 sendTransToFriends(T, [F | Friends]) ->
    %io:format("SEND_TRANSACTION: Invio all'amico [~p]~n", [F]),
-   sendMessage(F, {push, T}),
    %F ! {push, T},
+   sendMessage(F, {push, T}),
    sendTransToFriends(T, Friends -- [F]).
 
 
@@ -316,8 +316,8 @@ sendBlockToFriends(F,[]) ->
 
 sendBlockToFriends(Block, [F | Friends]) ->
    %io:format("SEND_BLOCK: Invio all'amico [~p]~n", [F]),
-   sendMessage(F, {update, self(), Block}),
    %F ! {update, self(), Block},
+   sendMessage(F, {update, self(), Block}),
    sendBlockToFriends(Block, Friends).
 
 checkBlock(Block) ->
@@ -345,8 +345,8 @@ getChain(_, []) ->
 % chiedo la visione della catena ad uno dei miei amici (lo faccio solo all'inizio!)
 getChain(Friend, FriendsToAsk) ->
    % chiedo la cima della chain ad un amico
-   sendMessage(Friend, {get_head, self(), make_ref()}),
    %Friend ! {get_head, self(), make_ref()},
+   sendMessage(Friend, {get_head, self(), make_ref()}),
    receive
    % la chain dell'amico e' vuota, allora chiedo ad un altro amico
       {head, _, empty} ->
@@ -384,14 +384,14 @@ getRemainingChain(_, _, none, TMined, Chain) ->
 
 getRemainingChain(Friend, FriendsToAsk, IDPreviousBlock, TMined, Chain) ->
    io:format("[~p] - GETREMCHAIN: Chiedo all'amico il precedente blocco!~n", [self()]),
-   sendMessage(Friend, {get_previous, self(), make_ref(), IDPreviousBlock}),
    %Friend ! {get_previous, self(), make_ref(), IDPreviousBlock},
+   sendMessage(Friend, {get_previous, self(), make_ref(), IDPreviousBlock}),
    receive
       {previous, _, Block} ->
          io:format("[~p] - GETREMCHAIN: Ricevuto blocco successivo!~n", [self()]),
          {_, IDPreviousBlockTemp, Transactions, _} = Block,
-         sendMessage(Friend, {get_previous, self(), make_ref(), IDPreviousBlockTemp}),
          %Friend ! {get_previous, self(), make_ref(), IDPreviousBlockTemp},
+         sendMessage(Friend, {get_previous, self(), make_ref(), IDPreviousBlockTemp}),
          getRemainingChain(Friend, FriendsToAsk, IDPreviousBlockTemp, TMined ++ Transactions, [Block] ++ Chain)
 
    % se non ricevo alcuna risposta dall'amico per un tot di tempo chiedo ad un altro amico
@@ -411,20 +411,25 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
    % la mia catena è vuota, allora questo blocco ricevuto costituirà la nuova catena
    case length(Chain) =:= 0 of
       true ->
-         io:format("[~p] - CHAIN_RECONSTRUCTION: La mia catena e' vuota, questo blocco ricevuto diventa la mia nuova catena!~n", [self()]),
-         throw({[Block], TInBlock});
+         % se la catena è vuota l'IDPrev del blocco dovrebbe puntare a none, se non lo è vuol dire che devo chiedere a sender o amici
+         case IDPreviousBlock =/= none of
+            true ->
+               io:format("[~p] - CHAIN_RECONSTRUCTION: La catena e' vuota ma il blocco ricevuto non punta a 'none'... chiedo a Sender o amici!~n", [self()]),
+               searchBlockOthers([Block], Block, Chain, Sender, Friends--[Sender]);
+            false ->
+               io:format("[~p] - CHAIN_RECONSTRUCTION: La mia catena e' vuota, questo blocco ricevuto diventa la mia nuova catena!~n", [self()]),
+               throw({[Block], TInBlock})
+         end;
       false ->
-         continue
-   end,
-
-   % la mia catena non è vuota e il blocco ricevuto punta alla testa della mia catena,
-   % la nuova catena avrà come nuova testa questo blocco ricevuto
-   [{IDBlock, _, _, _} | _] = Chain,
-   case IDPreviousBlock =:= IDBlock of
-      true ->
-         io:format("[~p] - CHAIN_RECONSTRUCTION: Blocco ricevuto punta alla testa della mia catena... lo aggiungo!~n", [self()]),
-         throw({[Block] ++ Chain, TInBlock});
-      false -> continue
+         % la mia catena non è vuota e il blocco ricevuto punta alla testa della mia catena,
+         % la nuova catena avrà come nuova testa questo blocco ricevuto
+         [{IDBlock, _, _, _} | _] = Chain,
+         case IDPreviousBlock =:= IDBlock of
+            true ->
+               io:format("[~p] - CHAIN_RECONSTRUCTION: Blocco ricevuto punta alla testa della mia catena... lo aggiungo!~n", [self()]),
+               throw({[Block] ++ Chain, TInBlock});
+            false -> continue
+         end
    end,
 
    % cerco se il previousId del blocco ricevuto è presente o no nella mia catena
@@ -433,7 +438,7 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
          % il blocco precedente non è stato trovato nella mia catena,
          % vado a cercarlo tra quelle degli amici o del sender
          io:format("[~p] - CHAIN_RECONSTRUCTION: Previous del blocco ricevuto non trovato nella mia catena... cerco in quelle di Sender/Friends!~n", [self()]),
-         searchBlockOthers([], IDPreviousBlock, Chain, Sender, Friends--[Sender]);
+         searchBlockOthers([], Block, Chain, Sender, Friends--[Sender]);
       _ ->
          % il padre del blocco ricevuto è già presente nella catena (e ha altri blocchi collegati), viene quindi scartato
          io:format("[~p] - CHAIN_RECONSTRUCTION: Previous di blocco ricevuto trovato nella mia catena ma non e' la testa... blocco ricevuto scartato!~n", [self()]),
@@ -510,8 +515,8 @@ searchPrevious(_, []) ->
 searchPrevious(IDPreviousBlock, Friends) ->
    [Friend | _] = Friends,
    Nonce = make_ref(),
-   sendMessage(Friend, {get_previous, self(), Nonce, IDPreviousBlock}),
    %Friend ! {get_previous, self(), Nonce, IDPreviousBlock},
+   sendMessage(Friend, {get_previous, self(), Nonce, IDPreviousBlock}),
    receive
       {previous, Nonce, Block} ->
          io:format("[~p] - CR_SEARCH_PREVIOUS(ciclo): Ricevuto blocco precedente... verifico correttezza e restituisco!~n", [self()]),

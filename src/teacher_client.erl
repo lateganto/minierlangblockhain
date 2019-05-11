@@ -97,15 +97,18 @@ test2() ->
          G = spawn(fun() -> fake_node(B1, R1, B2) end),
          io:format("update della chain a ~p~n", [F]),
          F ! {update, G, B2},
-         receive after 5000 -> true end,
+         receive
+         after 5000 -> true
+         end,
          [print_chain(H) || H <- Friends]
       ; _ -> io:format("Non ci sono amici per il test~n")
    end
 .
 
 main() ->
+   net_adm:ping('teacher@MacBook-Pro-di-Antonio.local'),
    io:format("--- Test2~n"),
-   test2(),
-   io:format("--- Test1~n"),
-   test1()
+   test2()
+%%   io:format("--- Test1~n"),
+%%   test1()
 .
