@@ -216,7 +216,7 @@ checkFriends(Main) ->
                loop(Friends, TToMine, NewTMined, NewChain, Mining)
          end;
 
-      {getHead, Sender, Nonce} ->
+      {get_head, Sender, Nonce} ->
          case length(Chain) of
             % catena vuota mando il messaggio
             0 ->
@@ -228,7 +228,6 @@ checkFriends(Main) ->
                io:format("[~p] - GETCHAIN: La mia catena non e' vuota... mando all'amico la testa!~n", [self()]),
                [H | _] = Chain,
                sendMessage(Sender, {head, Nonce, H})
-            %Sender ! {head, Nonce, H}
          end,
          loop(Friends, TToMine, TMined, Chain, Mining);
 
@@ -346,8 +345,8 @@ getChain(_, []) ->
 % chiedo la visione della catena ad uno dei miei amici (lo faccio solo all'inizio!)
 getChain(Friend, FriendsToAsk) ->
    % chiedo la cima della chain ad un amico
-   sendMessage(Friend, {getHead, self(), make_ref()}),
-   %Friend ! {getHead, self(), make_ref()},
+   sendMessage(Friend, {get_head, self(), make_ref()}),
+   %Friend ! {get_head, self(), make_ref()},
    receive
    % la chain dell'amico e' vuota, allora chiedo ad un altro amico
       {head, _, empty} ->
