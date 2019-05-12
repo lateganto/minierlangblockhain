@@ -34,7 +34,7 @@ checkFriends(Main) ->
 
             % scelgo a caso uno tra gli amici e mando una richiesta di amicizia
             N when N < 3 ->
-               %io:format("[~p] - CHECK_FRIENDS: Chiedo ad un amico chiedo una lista dei loro amici!~n", [Main]),
+               %io:format("[~p] - CHECK_FRIENDS: Chiedo ad un amico una lista dei loro amici!~n", [Main]),
                AskToFriend = lists:nth(rand:uniform(length(Friends)), Friends),
                sendMessage(AskToFriend, {get_friends, Main, make_ref()}),
                sleep(5),
@@ -220,12 +220,12 @@ checkFriends(Main) ->
          case length(Chain) of
             % catena vuota mando il messaggio
             0 ->
-               io:format("[~p] - GETCHAIN: La mia catena e' vuota... lo notifico all'amico!~n", [self()]),
+               io:format("[~p] - GETHEAD: La mia catena e' vuota... lo notifico all'amico!~n", [self()]),
                %Sender ! {head, Nonce, empty};
                sendMessage(Sender, {head, Nonce, empty});
             % catena con almeno un elemento, mando la testa all'amico
             _ ->
-               io:format("[~p] - GETCHAIN: La mia catena non e' vuota... mando all'amico la testa!~n", [self()]),
+               io:format("[~p] - GETHEAD: La mia catena non e' vuota... mando all'amico la testa!~n", [self()]),
                [H | _] = Chain,
                sendMessage(Sender, {head, Nonce, H})
          end,
@@ -234,8 +234,11 @@ checkFriends(Main) ->
       {get_previous, Sender, Nonce, IDPreviousBlock} ->
          Block = searchBlock(IDPreviousBlock, Chain),
          case Block of
-            none -> stop;
+            none ->
+               io:format("[~p] - GETPREVIOUS: Blocco precedente non trovato... notifico all'amico!~n", [self()]),
+               stop;
             _ ->
+               io:format("[~p] - GETPREVIOUS: Blocco precedente non trovato... notifico all'amico!~n", [self()]),
                %Sender ! {previous, Nonce, Block}
                sendMessage(Sender, {previous, Nonce, Block})
          end,
@@ -411,11 +414,12 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
    % la mia catena è vuota, allora questo blocco ricevuto costituirà la nuova catena
    case length(Chain) =:= 0 of
       true ->
-         % se la catena è vuota l'IDPrev del blocco dovrebbe puntare a none, se non lo è vuol dire che devo chiedere a sender o amici
+         % la mia catena è vuota, IDPrev del blocco dovrebbe puntare a none, se non lo è vuol dire che ci sono altri blocchi
+         % perciò chiedo a Sender o Amici
          case IDPreviousBlock =/= none of
             true ->
                io:format("[~p] - CHAIN_RECONSTRUCTION: La catena e' vuota ma il blocco ricevuto non punta a 'none'... chiedo a Sender o amici!~n", [self()]),
-               searchBlockOthers([Block], Block, Chain, Sender, Friends--[Sender]);
+               searchBlockOthers([], Block, Chain, Sender, Friends--[Sender]);
             false ->
                io:format("[~p] - CHAIN_RECONSTRUCTION: La mia catena e' vuota, questo blocco ricevuto diventa la mia nuova catena!~n", [self()]),
                throw({[Block], TInBlock})
@@ -476,7 +480,7 @@ searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
          % se non lo trova allora lo scarta
          io:format("[~p] - CR_SEARCH_PREV_OTHERS(ciclo): Block non trovato in My chain... cerco previous dall'amico!~n", [self()]),
          Prev = searchPrevious(IDPreviousBlock, [Sender] ++ Friends),
-         searchBlockOthers(OtherChain ++ [Prev], Prev, MyChain, Sender, Friends);
+         searchBlockOthers(OtherChain ++ [Block], Prev, MyChain, Sender, Friends);
 
       % nell'iterazione sono arrivato ad un blocco in comune quindi ho una biforcazione
       CommonBlock ->
@@ -592,7 +596,6 @@ main() ->
 
 %%    global:send(teacher_node, {get_friends, self(), make_ref()}),
    spawn_link(fun() -> start(Self) end),
-
    loop([], [], [], [], none).
 
 

@@ -53,7 +53,8 @@ test1() ->
       [push_trans(F, T) || T <- Trans]
         end,
    [PT(F) || F <- Friends],
-   receive after 5000 -> true end,
+   receive after 10000 -> true end,
+%%   receive after 20 * 1000 -> ok end,
    [print_chain(F) || F <- Friends]
 .
 
