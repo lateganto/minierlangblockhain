@@ -53,8 +53,7 @@ test1() ->
       [push_trans(F, T) || T <- Trans]
         end,
    [PT(F) || F <- Friends],
-   receive after 10000 -> true end,
-%%   receive after 20 * 1000 -> ok end,
+   receive after 20000 -> true end,
    [print_chain(F) || F <- Friends]
 .
 
@@ -109,7 +108,7 @@ test2() ->
 main() ->
    net_adm:ping('teacher@MacBook-Pro-di-Antonio.local'),
    io:format("--- Test2~n"),
-   test2()
-%%   io:format("--- Test1~n"),
-%%   test1()
+   test2(),
+   io:format("--- Test1~n"),
+   test1()
 .

@@ -167,6 +167,7 @@ checkFriends(Main) ->
    % ho terminato il mining di un nuovo blocco, lo invio a tutti gli amici, ripristino il miner
    % e aggiorno la mia visione della catena
       {block_mined, Block} ->
+         %io:format("NEWBLOCKMINED: ~p~n", [Block]),
          % ha finito di minare un blocco, vuol dire che è di nuovo pronto
          self() ! {miner_ready},
          {_, IDPreviousBlock, TransactionsMined, _} = Block,
@@ -178,6 +179,7 @@ checkFriends(Main) ->
                   true ->
                      io:format("[~p] - BLOCK_MINED: Aggiunto primo blocco minato... invio ad amici!~n", [self()]),
                      spawn(fun() -> sendBlockToFriends(Block, Friends) end), %lo giro agli amici
+                     %io:format("CHAIN: ~p", [[Block] ++ Chain]),
                      % aggiorno la mia visione della catena e delle transazioni minate e non
                      loop(Friends, TToMine--TransactionsMined, TMined ++ TransactionsMined, [Block] ++ Chain, Mining);
                   false ->
@@ -192,6 +194,7 @@ checkFriends(Main) ->
                   true ->
                      io:format("[~p] - BLOCK_MINED: Aggiunto nuovo blocco minato... invio ad amici!~n", [self()]),
                      spawn(fun() -> sendBlockToFriends(Block, Friends) end), %lo giro agli amici
+                     %io:format("CHAIN: ~p", [[Block] ++ Chain]),
                      % aggiorno la mia visione della catena e delle transazioni minate e non
                      loop(Friends, TToMine--TransactionsMined, TMined ++ TransactionsMined, [Block] ++ Chain, Mining);
                   false ->
@@ -204,10 +207,10 @@ checkFriends(Main) ->
    %%%%%%%%%%%%%%%%%%%%%%%   CHAIN   %%%%%%%%%%%%%%%%%%%%%%%%%%
 
       {getChain} ->
-         %io:format("[~p] - Chiedo la catena ad uno degli amici amici!~n", [self()]),
+         %io:format("[~p] - Chiedo la catena ad uno degli amici!~n", [self()]),
          case length(Friends) of
             0 ->
-               io:format("[~p] - GETCHAIN: Non ho amici a cui chiedere la catena! :(~n", [self()]),
+               io:format("[~p] - GETCHAIN: Non ho amici a cui chiedere la catena!~n", [self()]),
                loop(Friends, TToMine, TMined, Chain, Mining);
             _ ->
                io:format("[~p] - GETCHAIN: Chiedo la catena ad un amico!~n", [self()]),
@@ -452,6 +455,7 @@ chain_reconstruction(Block, Chain, Sender, Friends) ->
 searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
    {IDBlock, IDPreviousBlock, _, _} = Block,
 
+   % caso base
    case IDPreviousBlock of
       % ho scorso tutta la catena dell'amico, quindi devo decidere quale delle due accettare
       none ->
@@ -493,7 +497,7 @@ searchBlockOthers(OtherChain, Block, MyChain, Sender, Friends) ->
 
          case OtherChainToCompareLength > MyChainToCompareLength of
             true ->
-               % verifico se in OtherChain ci sono transazioni già presenti in MyChain
+               % verifico se in OtherChain ci sono transazioni già presenti nella Chain comune (quella che non verrebbe toccata da MyChain)
                case commonTransactionsVerify(CommonChain, OtherChain) of
                   % scarto il blocco perchè ci sono transazioni in OtherChain già presenti nella mia catena
                   true ->
@@ -579,19 +583,18 @@ sendMessage(Receiver, Msg) ->
 
 start(Self) ->
    sleep(5),
-   io:format("~n[~p] - ASK TO FRIENDS FOR INITIAL CHAIN~n", [Self]),
+   io:format("~n[~p] - ASK TO FRIENDS FOR INITIAL CHAIN...~n", [Self]),
    Self ! {getChain},
 
-   io:format("~n[~p] - INVOKE MINER~n", [Self]),
+   io:format("~n[~p] - INVOKE MINER...~n", [Self]),
    Self ! {miner_ready}.
-
 
 
 main() ->
    net_adm:ping('teacher@MacBook-Pro-di-Antonio.local'),
    sleep(2),
    Self = self(),
-   io:format("~n[~p] - ASKING FOR FRIENDS TO TEACHER~n", [self()]),
+   io:format("~n[~p] - ASKING FOR FRIENDS TO TEACHER...~n", [self()]),
    spawn_link(fun() -> checkFriends(Self) end),
 
 %%    global:send(teacher_node, {get_friends, self(), make_ref()}),
