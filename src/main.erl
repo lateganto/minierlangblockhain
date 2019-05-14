@@ -25,7 +25,7 @@ checkFriends(Main) ->
    receive
       {friends_list, Friends} ->
          case length(Friends) of
-            % non ho amici chiedo al pro
+            % non ho amici chiedo al professore
             0 ->
                %io:format("[~p] - CHECK_FRIENDS: Non ho amici chiedo al nodo professore!~n", [Main]),
                global:send(teacher_node, {get_friends, Main, make_ref()}),
@@ -38,7 +38,9 @@ checkFriends(Main) ->
                AskToFriend = lists:nth(rand:uniform(length(Friends)), Friends),
                sendMessage(AskToFriend, {get_friends, Main, make_ref()}),
                sleep(5),
-               checkFriends(Main)
+               checkFriends(Main);
+            _ ->
+               ok
          end
    end.
 
@@ -214,10 +216,11 @@ checkFriends(Main) ->
                loop(Friends, TToMine, TMined, Chain, Mining);
             _ ->
                io:format("[~p] - GETCHAIN: Chiedo la catena ad un amico!~n", [self()]),
-               Friend = lists:nth(rand:uniform(length(Friends)), Friends),
-               {NewTMined, NewChain} = getChain(Friend, Friends -- [Friend]),
+               {NewTMined, NewChain} = getChain(Friends),
                loop(Friends, TToMine, NewTMined, NewChain, Mining)
          end;
+
+
 
       {get_head, Sender, Nonce} ->
          case length(Chain) of
@@ -344,12 +347,13 @@ createBlock(Transactions, IdPrevBlock, Sender) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % caso base: ho finito gli amici a cui chiedere, resituisco catena e TMined vuote
-getChain(_, []) ->
+getChain([]) ->
    io:format("[~p] - GETCHAIN: Non ho piu' amici... restituisco la catena vuota!~n", [self()]),
    {[], []};
 
 % chiedo la visione della catena ad uno dei miei amici (lo faccio solo all'inizio!)
-getChain(Friend, FriendsToAsk) ->
+getChain(FriendsToAsk) ->
+   [Friend | _] = FriendsToAsk,
    % chiedo la cima della chain ad un amico
    %Friend ! {get_head, self(), make_ref()},
    sendMessage(Friend, {get_head, self(), make_ref()}),
@@ -357,24 +361,18 @@ getChain(Friend, FriendsToAsk) ->
    % la chain dell'amico e' vuota, allora chiedo ad un altro amico
       {head, _, empty} ->
          io:format("[~p] - GETCHAIN: La catena dell'amico e' vuota... chiedo ad un'altro amico!~n", [self()]),
-         AnotherFriend = lists:nth(rand:uniform(length(FriendsToAsk)), FriendsToAsk),
-         getChain(AnotherFriend, FriendsToAsk -- [AnotherFriend]);
+         getChain(FriendsToAsk -- [Friend]);
 
    % ho ricevuto la testa da uno degli amici, vado a ricostruire il resto della catena
       {head, _, Block} ->
          io:format("[~p] - GETCHAIN: Ricevuta testa blockchain... continuo a costruire la catena!~n", [self()]),
          {_, IDPreviousBlock, Transactions, _} = Block,
-         getRemainingChain(Friend, FriendsToAsk, IDPreviousBlock, [Transactions], [Block])
+         getRemainingChain(Friend, FriendsToAsk--[Friend], IDPreviousBlock, [Transactions], [Block])
 
    % se non ricevo alcuna risposta dall'amico per un tot di tempo chiedo ad un altro amico
    after ?TIMEOUT ->
-      case length(FriendsToAsk) of
-         0 -> {[], []};   % restituisco catena vuota
-         _ ->
-            io:format("[~p] - GETCHAIN: L'amico non risponde... chiedo ad un altro amico!~n", [self()]),
-            AnotherFriend = lists:nth(rand:uniform(length(FriendsToAsk)), FriendsToAsk),
-            getChain(AnotherFriend, FriendsToAsk -- [AnotherFriend])
-      end
+      io:format("[~p] - GETCHAIN: L'amico non risponde... chiedo ad un altro amico!~n", [self()]),
+      getChain(FriendsToAsk -- [Friend])
    end.
 
 % ho finito la lista di amici, allora restituisco la catena vuota
@@ -591,7 +589,7 @@ start(Self) ->
 
 
 main() ->
-   net_adm:ping('teacher@MacBook-Pro-di-Antonio.local'),
+   net_adm:ping('teacher@MacBook-Pro-di-Antonio.comune.bologna.it'),
    sleep(2),
    Self = self(),
    io:format("~n[~p] - ASKING FOR FRIENDS TO TEACHER...~n", [self()]),
@@ -619,12 +617,12 @@ main() ->
     N1 ! {push, {make_ref(), "ciao3"}},
     N1 ! {push, {make_ref(), "ciao4"}},
 
-    sleep(10),
-    io:format("~n~n2. PUSHO 4 TRANSAZIONI!~n"),
-    N1 ! {push, {make_ref(), "ciao11"}},
-    N1 ! {push, {make_ref(), "ciao21"}},
-    N1 ! {push, {make_ref(), "ciao31"}},
-    N1 ! {push, {make_ref(), "ciao41"}},
+   sleep(10),
+   io:format("~n~n2. PUSHO 4 TRANSAZIONI!~n"),
+   N1 ! {push, {make_ref(), "ciao11"}},
+   N1 ! {push, {make_ref(), "ciao21"}},
+   N1 ! {push, {make_ref(), "ciao31"}},
+   N1 ! {push, {make_ref(), "ciao41"}},
 
     sleep(30),
     io:format("3. PUSHO 4 TRANSAZIONI!~n"),
